@@ -1,0 +1,5 @@
+streamlit
+numpy
+xgboost==2.0.3
+scikit-learn
+langchain-groq
