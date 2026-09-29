@@ -232,4 +232,64 @@ with tab_diagnosis:
             if 'cancer_prob' not in st.session_state:
                 st.warning("⚠️ Please successfully run the Diagnostic ML Model first so the AI has a probability score to analyze.")
             elif not GROQ_API_KEY:
-                st.error("Groq API Ke
+                st.error("Groq API Key is missing. Please add it to Streamlit Secrets.")
+            else:
+                with st.spinner(f"Orchestrating {target_model_id} to analyze profile..."):
+                    try:
+                        llm = ChatGroq(model_name=target_model_id, groq_api_key=GROQ_API_KEY, temperature=0.1)
+                        
+                        prompt = f"""
+                        You are a highly professional Clinical AI Assistant.
+                        
+                        Patient Profile (Values mapped for clinical readability):
+                        {st.session_state['patient_features']}
+                        
+                        Machine Learning Model Prediction (Cancer Probability): {st.session_state['cancer_prob']*100:.1f}%
+                        
+                        Write a 2-paragraph preliminary clinical summary. 
+                        Paragraph 1: Summarize the patient's key risk factors based on the profile.
+                        Paragraph 2: State the ML model's probability score and recommend that the physician review the patient for further screening.
+                        
+                        DO NOT diagnose the patient. Maintain a strictly objective, clinical tone suitable for a doctor's notes.
+                        """
+                        response = llm.invoke(prompt)
+                        st.session_state['clinical_notes'] = response.content
+                    except Exception as e:
+                        st.error(f"LLM Error: Please try selecting the 'llama-3.1-8b-instant' model from the dropdown. Detail: {e}")
+        
+        if 'clinical_notes' in st.session_state:
+            with st.container(border=True):
+                st.markdown(st.session_state['clinical_notes'])
+
+with tab_eda:
+    st.title("📊 Exploratory Data Analysis & Visualization")
+    st.markdown("Below is the complete interactive Jupyter Notebook hosted on Kaggle, detailing the data cleaning, feature correlation, and visualization steps taken prior to model training.")
+    st.divider()
+    
+    kaggle_iframe = """
+    <iframe 
+        src="https://www.kaggle.com/embed/avasthiprakhar/cancer-prediction-88-f1-90-acc-rf-cat-xgb-lgbm?kernelSessionId=228639734" 
+        height="850" 
+        style="margin: 0 auto; width: 100%; max-width: 1200px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" 
+        frameborder="0" 
+        scrolling="auto" 
+        title="Cancer Prediction | 88% F1 | 90% Acc">
+    </iframe>
+    """
+    components.html(kaggle_iframe, height=900)
+
+with tab_methodology:
+    st.title("🧠 Predictive Modeling Architecture")
+    st.divider()
+    
+    met1, met2, met3 = st.columns(3)
+    met1.metric("Overall Accuracy", "90.0%")
+    met2.metric("F1-Score", "88.0%")
+    met3.metric("False Negative Rate", "Optimized/Minimized")
+    
+    st.divider()
+    
+    st.write("### Model Training Overview")
+    st.write("This application is backed by a robust ensemble machine learning pipeline developed by Prakhar Avasthi.")
+    st.write("Multiple algorithms were benchmarked on a 5,000+ patient record dataset, including **Random Forest, CatBoost, XGBoost, and LightGBM**. Hyperparameter tuning was conducted utilizing `GridSearchCV` to optimize the model specifically for **Recall**, actively minimizing False Negatives.")
+    st.info("💡 **Why optimize for Recall?** In medical diagnostics, a False Negative (missing a cancer diagnosis and sending a sick patient home) carries a drastically higher penalty than a False Positive (flagging a healthy patient for a secondary screening). The threshold was adjusted to ensure maximum sensitivity.")
