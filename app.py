@@ -3,6 +3,7 @@ Streamlit Monolithic Interface for Lung Cancer Prediction, EDA, & Clinical AI As
 """
 import os
 import pickle
+import pandas as pd
 import numpy as np
 import requests
 import streamlit as st
@@ -94,7 +95,7 @@ def fetch_available_models():
         except Exception:
             pass
             
-    # Fallback if API fails
+    # Safe Fallback to 8b-instant which is highly stable
     if not models_list:
         models_list.append({"id": "llama-3.1-8b-instant", "display_name": "Groq (llama-3.1-8b-instant) - Fallback"})
         
@@ -154,7 +155,8 @@ with tab_diagnosis:
 
         if st.button("Run Diagnostic ML Model", use_container_width=True, type="primary"):
             
-            def map_bin(val): return 2 if val == "Yes" else 1
+            # PERFECT DATA MAPPING: Aligned with the Kaggle df.describe() which uses 0 and 1
+            def map_bin(val): return 1 if val == "Yes" else 0
             
             # Save readable features for LLM context
             st.session_state['patient_features'] = {
@@ -170,29 +172,35 @@ with tab_diagnosis:
             
             if cancer_model:
                 try:
-                    # STRICT ARRAY MAPPING: Ordered exactly as the Kaggle 17-feature schema
-                    raw_features = np.array([[
-                        int(age),                               # 0. AGE
-                        1 if gender == "Male" else 0,           # 1. GENDER
-                        map_bin(smoking),                       # 2. SMOKING
-                        map_bin(finger_discoloration),          # 3. FINGER_DISCOLORATION
-                        map_bin(mental_stress),                 # 4. MENTAL_STRESS
-                        map_bin(exposure_pollution),            # 5. EXPOSURE_TO_POLLUTION
-                        map_bin(long_term_illness),             # 6. LONG_TERM_ILLNESS
-                        float(energy_level),                    # 7. ENERGY_LEVEL
-                        map_bin(immune_weakness),               # 8. IMMUNE_WEAKNESS
-                        map_bin(breathing_issue),               # 9. BREATHING_ISSUE
-                        map_bin(alcohol),                       # 10. ALCOHOL_CONSUMPTION
-                        map_bin(throat_discomfort),             # 11. THROAT_DISCOMFORT
-                        float(oxygen_saturation),               # 12. OXYGEN_SATURATION
-                        map_bin(chest_tightness),               # 13. CHEST_TIGHTNESS
-                        map_bin(family_history),                # 14. FAMILY_HISTORY
-                        map_bin(smoking_family),                # 15. SMOKING_FAMILY_HISTORY
-                        map_bin(stress_immune)                  # 16. STRESS_IMMUNE
-                    ]])
+                    # Map exactly to the DataFrame schema from the Kaggle notebook
+                    input_data = {
+                        "AGE": age,
+                        "GENDER": 1 if gender == "Male" else 0,
+                        "SMOKING": map_bin(smoking),
+                        "FINGER_DISCOLORATION": map_bin(finger_discoloration),
+                        "MENTAL_STRESS": map_bin(mental_stress),
+                        "EXPOSURE_TO_POLLUTION": map_bin(exposure_pollution),
+                        "LONG_TERM_ILLNESS": map_bin(long_term_illness),
+                        "ENERGY_LEVEL": float(energy_level),
+                        "IMMUNE_WEAKNESS": map_bin(immune_weakness),
+                        "BREATHING_ISSUE": map_bin(breathing_issue),
+                        "ALCOHOL_CONSUMPTION": map_bin(alcohol),
+                        "THROAT_DISCOMFORT": map_bin(throat_discomfort),
+                        "OXYGEN_SATURATION": float(oxygen_saturation),
+                        "CHEST_TIGHTNESS": map_bin(chest_tightness),
+                        "FAMILY_HISTORY": map_bin(family_history),
+                        "SMOKING_FAMILY_HISTORY": map_bin(smoking_family),
+                        "STRESS_IMMUNE": map_bin(stress_immune)
+                    }
                     
-                    # Run Inference on the strict Numpy Array
-                    prob = cancer_model.predict_proba(raw_features)[0][1]
+                    input_df = pd.DataFrame([input_data])
+                    
+                    # Ensure columns are exactly as the model memorized them
+                    if hasattr(cancer_model, "feature_names_in_"):
+                        input_df = input_df[cancer_model.feature_names_in_]
+                    
+                    # Run Inference
+                    prob = cancer_model.predict_proba(input_df)[0][1]
                     st.session_state['cancer_prob'] = prob
                     
                     st.success("Analysis Complete.")
@@ -208,7 +216,6 @@ with tab_diagnosis:
     with col2:
         st.header("2. AI Clinical Notes Generator")
         
-        # Dynamic LLM Fetching
         available_models = fetch_available_models()
         model_map = {m["display_name"]: m["id"] for m in available_models}
         
@@ -225,52 +232,4 @@ with tab_diagnosis:
             if 'cancer_prob' not in st.session_state:
                 st.warning("⚠️ Please successfully run the Diagnostic ML Model first so the AI has a probability score to analyze.")
             elif not GROQ_API_KEY:
-                st.error("Groq API Key is missing. Please add it to Streamlit Secrets.")
-            else:
-                with st.spinner(f"Orchestrating {target_model_id} to analyze profile..."):
-                    try:
-                        llm = ChatGroq(model_name=target_model_id, groq_api_key=GROQ_API_KEY, temperature=0.1)
-                        
-                        prompt = f"""
-                        You are a highly professional Clinical AI Assistant.
-                        
-                        Patient Profile:
-                        {st.session_state['patient_features']}
-                        
-                        Machine Learning Model Prediction (Cancer Probability): {st.session_state['cancer_prob']*100:.1f}%
-                        
-                        Write a 2-paragraph preliminary clinical summary. 
-                        Paragraph 1: Summarize the patient's key risk factors based on the profile.
-                        Paragraph 2: State the ML model's probability score and recommend that the physician review the patient for further screening.
-                        
-                        DO NOT diagnose the patient. Maintain a strictly objective, clinical tone suitable for a doctor's notes.
-                        """
-                        response = llm.invoke(prompt)
-                        st.session_state['clinical_notes'] = response.content
-                    except Exception as e:
-                        st.error(f"LLM Error: {e}")
-        
-        if 'clinical_notes' in st.session_state:
-            with st.container(border=True):
-                st.markdown(st.session_state['clinical_notes'])
-
-with tab_eda:
-    st.title("📊 Exploratory Data Analysis & Visualization")
-    st.markdown("Below is the complete interactive Jupyter Notebook hosted on Kaggle, detailing the data cleaning, feature correlation, and visualization steps taken prior to model training.")
-    st.divider()
-    
-    kaggle_iframe = """
-    <iframe 
-        src="https://www.kaggle.com/embed/avasthiprakhar/cancer-prediction-88-f1-90-acc-rf-cat-xgb-lgbm?kernelSessionId=228639734" 
-        height="850" 
-        style="margin: 0 auto; width: 100%; max-width: 1200px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" 
-        frameborder="0" 
-        scrolling="auto" 
-        title="Cancer Prediction | 88% F1 | 90% Acc">
-    </iframe>
-    """
-    components.html(kaggle_iframe, height=900)
-
-with tab_methodology:
-    st.title("🧠 Predictive Modeling Architecture")
-    st.divider
+                st.error("Groq API Ke
