@@ -1,5 +1,5 @@
 streamlit
 numpy
-xgboost==2.0.3
+xgboost==1.7.6
 scikit-learn
 langchain-groq
